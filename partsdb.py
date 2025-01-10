@@ -31,7 +31,7 @@ class Part:
         self.count = 0
     
     def default_filename(self):
-        return '.database/{}.json'.format(sanitize_filename(self.partNum))
+        return '.database/{}_{}.json'.format(sanitize_filename(self.partNum), sanitize_filename(self.manufacturer))
 
     def save(self, filename=None):
         if filename is None:
@@ -41,9 +41,17 @@ class Part:
 
     def to_string(self, index=None):
         out = ''
+        indent = '  '
         if index is not None:
             out += '[ {:>2} ] '.format(index)
-        out += '{}: {}'.format(self.partNum, self.description)
+            indent = '       '
+            out += '{} ({})'.format(self.partNum, self.manufacturer)
+        else:
+            out += '{}\n{}Manufacturer: {}'.format(self.partNum, indent, self.manufacturer)
+        out += '\n{}Description: {}'.format(indent, self.description)
+        out += '\n{}Category: {}'.format(indent, self.category)
+        if self.count > 0:
+            out += '\n{}Count: {}'.format(indent, self.count)
         return out
 
 class PartSearch:
@@ -134,12 +142,34 @@ def inventory(api='mouser'):
     config = Config()
     searcher = PartSearch.instantiate(api, config)
     while True:
-        partid = input('Part ID (or \'q\' to exit): ')
+        partid = input('Part ID (or \'q\' to exit, \'m\' for manual input): ')
         if partid == 'q':
             break
-        result = searcher.search(partid, False)
-        parser = PartParser.instantiate(api, config)
-        parts = parser.parse(result)
+        
+        if partid == 'm':
+            confirm = ''
+
+            while confirm not in ['y', 'n']:
+                part = Part(input('Part Number: '))
+                part.manufacturer = input('Manufacturer: ') or part.manufacturer
+                part.category = input('Category: ') or part.category
+                part.description = input('Description: ')
+                while part.count < 1:
+                    try:
+                        part.count = int(input('Count: '))
+                    except Exception as e:
+                        print('Conversion error: {}'.format(e))
+                print('\nEntered part:\n{}\n'.format(part.to_string()))
+                confirm = input('Confirm? (y/n) ')
+
+            if confirm == 'n':
+                continue
+
+            parts = [ part ]
+        else:
+            result = searcher.search(partid, False)
+            parser = PartParser.instantiate(api, config)
+            parts = parser.parse(result)
         
         if len(parts) == 0:
             print('Found no parts for this keyword ...')
@@ -167,17 +197,17 @@ def inventory(api='mouser'):
             part = parts[sel - 1]
         
         print('\nSelected part:\n{}\n'.format(part.to_string()))
-        count = 0
-        while count < 1:
+        while part.count < 1:
             try:
                 count = input('Count (or \'q\' to exit): ')
                 if count == 'q':
-                    count = None
+                    part.count = None
                     break
-                count = int(count)
+                part.count = int(count)
             except:
                 print('Conversion error: {}'.format(e))
-        part.count = count
+        if part.count is None:
+            continue
 
         part.save()
         print('Written part to \'{}\' ...\n\n'.format(part.default_filename()))
